@@ -317,7 +317,6 @@ bool ledVmeterAnimation(float signal, unsigned long currentMillis) {
         }
             */
     }
-  
     // Gradually fade down peak when in CLASH_ONGOING state
     if (STATE == CLASH_ONGOING) {
         if (currentMillis - lastFadeUpdate >= VMETER_LED_CELL_FADE_TIME) {
@@ -352,6 +351,39 @@ bool ledVmeterAnimation(float signal, unsigned long currentMillis) {
     return (nLedsUsedPeak > 0);
 }
 
+    /**
+ * Banger Clash animation - two lights from the edges of the strip move to the center and collide creating an explosion
+ * 
+ * @param signal: Signal level (0.0 - 1.0)
+ * @param currentMillis: Current timestamp for fade timing
+ * @return: true if animation is still active, false if complete
+ */
+bool ledVmeterAnimation(bool new_) {
+    static colour_1 = 0;
+    static int colour_2 = 0;
+    static int step = 0;
+    static bool end = false
+    if (new_) {
+        new_ = false;
+        end = false;
+        fill_solid(leds, NUM_LEDS, CRGB::Black);
+        rndPol = random(2);
+        if (rndPol == 0) {
+            rndPol = -1;
+        }
+        colour_1 = random(256); // cell 1
+        leds[0] = CHSV(colour_1, 255, 255);
+        colour_2 = wrap(colour_1 + 255 + (random(100)*rndPol));
+        leds[NUM_LEDS - 1] = CHSV(colour_1, 255, 255);
+        step = 0;
+
+    } else {
+
+    }
+
+
+    FastLED.show();
+}
 // ============================================================================
 // SETUP
 // ============================================================================
