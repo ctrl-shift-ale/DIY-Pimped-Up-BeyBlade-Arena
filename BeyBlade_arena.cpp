@@ -1,5 +1,6 @@
 #include <FastLED.h>
 #include <string.h>
+#include <math.h>
 
 // ============================================================================
 // PIN DEFINITIONS
@@ -22,7 +23,7 @@ int TEST_MODE = TEST_BANGERCLASH;   // Change to enable test mode
 // ============================================================================
 // DEBUG SETTINGS
 // ============================================================================
-#define DEBUG false         // Enable serial debug output
+#define DEBUG true         // Enable serial debug output
 
 // ============================================================================
 // ANIMATION TYPES
@@ -347,14 +348,18 @@ bool ledVmeterAnimation(float signal, unsigned long currentMillis) {
 bool bangerClashAnimation(int current_millis) {
     static int colour_1 = 0;
     static int colour_2 = 0;
-    static int brightness = 40;
+    static int brightness = 20;
     static int dotPos = 0;
+    static int dotSize = 1;
+    static int dotSizeHis = 1;
     static int state = 3; // 0 : init, 1 : dots moving, 2 : collision, 3: end
     static int lastUpdate = 0;
-    static const int startSpeed = 500; // ms per cell
-    static const int endSpeed = 50; // ms per cell
-    static const float expAcceleration = 2.0;
-    static int currentSpeed = 500;
+    static const int startSpeed = 100; // ms per cell
+    static const int endSpeed = 2; // ms per cell
+    static const int xplStartSpeed = 7; // ms per cell
+    static const int xplEndSpeed = 50; // ms per cell
+    static const float expAcceleration = 0.5;
+    static int currentSpeed = startSpeed;
     static int timer = 0;
     static int xplStep = 0;
     static const int colourWhite[3] = {45, 0, 255}; // hue, sat, bri
@@ -362,7 +367,12 @@ bool bangerClashAnimation(int current_millis) {
     static const int colourRed[3] = {0, 255, 255}; // hue, sat, bri
     static int currentColourCore[3] = {45, 0, 255 }; 
     static int currentColourCorona[3] = {45, 255, 255 };
-
+    const int coronaPosOffset = 3;
+    // Debug output
+    if (DEBUG) {
+        Serial.print("Function bangerClashAnimation. State ");
+        Serial.println(state);
+    }
     if (state == 3) {
         state = 0; // new
         fill_solid(leds, NUM_LEDS, CRGB::Black);
@@ -371,42 +381,80 @@ bool bangerClashAnimation(int current_millis) {
             rndPol = -1;
         }
         dotPos = 0;
-        brightness = 40;
+        dotSize = 1;
+        dotSizeHis = 1;
+        brightness = 20;
+        // dot 1 on edge of led strip
         colour_1 = random(256); // dot 1
         leds[0] = CHSV(colour_1, 255, brightness);
-        colour_2 = wrap(colour_1 + 255 + (random(100)*rndPol),0,255);
+        // dot 2 on other edge of led strip
+        colour_2 = wrap(colour_1 + 128 + (random(64)*rndPol),0,255);
         leds[NUM_LEDS - 1] = CHSV(colour_2, 255, brightness);
         
-        currentSpeed = startSpeed;
+        if (DEBUG) {
+            Serial.print("Dot 1. Hue: ");
+            Serial.println(colour_1);
+            Serial.print("Dot 2. Hue: ");
+            Serial.println(colour_2);
+            Serial.print("Dot position: ");
+            Serial.println(dotPos);
+        }
+
+        currentSpeed = startSpeed; // speed is calculated as time for the dots to move to their next position
         timer = 0;
-        state = 1;
+        state = 1; //dots moving
         lastUpdate = current_millis;
 
     } else {
         int deltaTime = current_millis - lastUpdate;
-        if (state == 1) {        
-            timer += deltaTime;
-            if (timer + (deltaTime / 2) >= currentSpeed) { // dot moves to next cell            
-                leds[dotPos] = CRGB::Black;
-                leds[NUM_LEDS - dotPos - 1] = CRGB::Black;
-                dotPos++;
-                brightness += 5;
-                brightness = constrain(brightness,0,255);
-                leds[dotPos] = CHSV(colour_1, 255, brightness);
-                leds[NUM_LEDS - dotPos - 1] = CHSV(colour_2, 255, brightness);
-                currentSpeed = (int)expScale((float)dotPos,0.0,29.0,(float)startSpeed,(float)endSpeed,expAcceleration);
-                timer = 0;
-
-                if (dotPos  >= (NUM_LEDS / 2) - 1) {
-                    state = 2; // collision
-                    dotPos = 0;
-                    xplStep = 0;
+        timer += deltaTime;
+        if (state == 1) {       // moving  
+            
+            float movement = (float)(timer)/(float)(currentSpeed);
+            if (movement >= 0.75) { // dot moves to next cell 
+                // switch off the leds from previous step 
+                for (int cnt = 0; cnt < dotSize; cnt++) {           
+                    leds[dotPos - cnt] = CRGB::Black;
+                    leds[NUM_LEDS - dotPos - 1 + cnt] = CRGB::Black;
                 }
+                // calculate 
+                dotSize = constrain((int)movement,1,5);
+                dotPos += (int)round(movement+0.5);
+                if (dotPos  >= (NUM_LEDS / 2) - 1) { // dots collide
+                    state = 2; // collision
+                    
+                    dotPos = (NUM_LEDS / 2) - coronaPosOffset - 1;
+                    xplStep = 0;
+                    currentSpeed = xplStartSpeed;
+                } else {
+                    brightness = (int)expScale((float)dotPos,0.0,29.0,(float)20,(float)300,4.0);
+                    //brightness = constrain(brightness,0,255);
+                    int brightnessTail = brightness;
+                    for (int cnt = 0; cnt < dotSize; cnt++) {   
+                        brightnessTail = constrain(int( (float) brightnessTail * (1.0 - ( (float)cnt / 10.0) )),
+                          0,255);     
+                        leds[dotPos - cnt] = CHSV(colour_1, 255, brightnessTail);
+                        leds[NUM_LEDS - dotPos - 1 + cnt] = CHSV(colour_2, 255, brightnessTail);
+                    }
+                    
+                    currentSpeed = (int)expScale((float)dotPos,0.0,29.0,(float)startSpeed,(float)endSpeed,expAcceleration);
+                    if (DEBUG) {
+                        Serial.print("Dot size: ");
+                        Serial.print(dotSize);
+                        Serial.print(", position: ");
+                        Serial.print(dotPos);
+                        Serial.print(". Speed: ");
+                        Serial.println(currentSpeed);
+                    }
+                    timer = 0;
+                }            
             }
             
         }
-        if (state == 2) {
+        if (state == 2) { // collision
             const int centerPos[2] =  { (NUM_LEDS / 2) - 1, (NUM_LEDS / 2) };
+            
+
             memcpy(currentColourCore, colourWhite, sizeof(colourWhite));
             currentColourCore[2] = brightness ; // will transition to bright white
             memcpy(currentColourCorona, colourYellow, sizeof(colourYellow));
@@ -433,9 +481,45 @@ bool bangerClashAnimation(int current_millis) {
                     leds[centerPos[0] - posOffset] = CHSV(currentColourCorona[0], currentColourCorona[1], currentColourCorona[2]);
                     leds[centerPos[1] + posOffset] = CHSV(currentColourCorona[0], currentColourCorona[1], currentColourCorona[2]);
                 }
-            } else {
-                state = 3;
+            //} else {
+            //    state = 3;
             }
+
+            //RED CORONA
+            float movement = (float)(timer)/(float)(currentSpeed);
+            if (movement >= 0.75) { // dot moves to next cell 
+                
+                // calculate 
+                dotSize = constrain((int)movement,1,30);
+                dotPos -= (int)round(movement+0.5);
+                if (dotPos  < 0) {
+                    state = 3; // end
+                } else {
+                    brightness = 255;
+                    //brightness = (int)expScale((float)dotPos,0.0,29.0,(float)20,(float)300,4.0);
+                    //brightness = constrain(brightness,0,255);
+                    //int brightnessTail = brightness;
+                    
+                    for (int cnt = 0; cnt < dotSize; cnt++) {   
+                        //brightnessTail = constrain(int( (float) brightnessTail * (1.0 - ( (float)cnt / 10.0) )),
+                        //  0,255);     
+                        leds[dotPos - cnt] = CHSV(0, 255, brightness);
+                        leds[(NUM_LEDS/2) + dotPos - 1 + cnt] = CHSV(0, 255, brightness);
+                    }
+                    
+                    currentSpeed = (int)expScale((float)dotPos,0.0,29.0,(float)xplStartSpeed,(float)xplEndSpeed,0.25);
+                    if (DEBUG) {
+                        Serial.print("Dot size: ");
+                        Serial.print(dotSize);
+                        Serial.print(", position: ");
+                        Serial.print(dotPos);
+                        Serial.print(". Speed: ");
+                        Serial.println(currentSpeed);
+                    }
+                    timer = 0;
+                }            
+            }
+            
 
             xplStep++;
         }
@@ -479,9 +563,14 @@ void setup() {
         Serial.print("Number of LEDs: ");
         Serial.println(NUM_LEDS);
         Serial.println("====================================");
+    } else if (TEST_MODE == TEST_BANGERCLASH) {
+        Serial.println("=== LED BANGERCLASH ANIMATION TEST MODE ENABLED ===");
+        Serial.print("Number of LEDs: ");
+        Serial.println(NUM_LEDS);
+        Serial.println("====================================");
     } else {
         Serial.println("=== NORMAL MODE ===");
-        Serial.print("Animation: ");
+        Serial.print("Clash Animation: ");
         Serial.println(CLASH_ANIMATION == FLASH ? "FLASH" : "VMETER");
         Serial.println("===================");
     }
@@ -492,7 +581,9 @@ void setup() {
 // ============================================================================
 
 void loop() {
-    // Run test mode if enabled
+    // ========================================
+    // TEST MODE
+    // ========================================
     if (TEST_MODE == TEST_PIEZO) {
         testPiezo();
         return;
