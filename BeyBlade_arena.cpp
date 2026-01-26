@@ -373,7 +373,7 @@ bool bangerClashAnimation(int current_millis) {
         Serial.print("Function bangerClashAnimation. State ");
         Serial.println(state);
     }
-    if (state == 3) {
+    if (state == 3) { // INACTIVE
         state = 0; // new
         fill_solid(leds, NUM_LEDS, CRGB::Black);
         int rndPol = random(2);
@@ -405,7 +405,7 @@ bool bangerClashAnimation(int current_millis) {
         state = 1; //dots moving
         lastUpdate = current_millis;
 
-    } else {
+    } else { // ACTIVE
         int deltaTime = current_millis - lastUpdate;
         timer += deltaTime;
         if (state == 1) {       // moving  
@@ -492,6 +492,12 @@ bool bangerClashAnimation(int current_millis) {
                 // calculate 
                 dotSize = constrain((int)movement,1,30);
                 dotPos -= (int)round(movement+0.5);
+                if (DEBUG) {
+                    Serial.print("Corona. dotPos:  ");
+                    Serial.print(dotPos);
+                    Serial.print(", dotSize:  ");
+                    Serial.println(dotSize);
+                }
                 if (dotPos  < 0) {
                     state = 3; // end
                 } else {
@@ -516,8 +522,9 @@ bool bangerClashAnimation(int current_millis) {
                         Serial.print(". Speed: ");
                         Serial.println(currentSpeed);
                     }
-                    timer = 0;
-                }            
+                    
+                }  
+                timer = 0;          
             }
             
 
