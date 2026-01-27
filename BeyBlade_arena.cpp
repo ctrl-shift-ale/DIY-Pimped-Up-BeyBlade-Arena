@@ -367,10 +367,14 @@ bool bangerClashAnimation(int current_millis) {
     static const int colourRed[3] = {0, 255, 255}; // hue, sat, bri
     static int currentColourCore[3] = {45, 0, 255 }; 
     static int currentColourCorona[3] = {45, 255, 255 };
-    const int coronaPosOffset = 3;
+    const int coronaPosOffsetInit = 3;
+    static int coronaPosLeft =0;
+    static int coronaPosRight =0;
+    static int coronaLeftDots[27] = {0};
+    static int coronaRightDots[27] = {0};
     // Debug output
     if (DEBUG) {
-        Serial.print("Function bangerClashAnimation. State ");
+        Serial.print("Function call bangerClashAnimation. State ");
         Serial.println(state);
     }
     if (state == 3) { // INACTIVE
@@ -423,7 +427,14 @@ bool bangerClashAnimation(int current_millis) {
                 if (dotPos  >= (NUM_LEDS / 2) - 1) { // dots collide
                     state = 2; // collision
                     
-                    dotPos = (NUM_LEDS / 2) - coronaPosOffset - 1;
+                    coronaPosLeft = (NUM_LEDS / 2) - coronaPosOffsetInit - 1;
+                    coronaPosRight = (NUM_LEDS / 2) + coronaPosOffsetInit;
+                    if (DEBUG) {    
+                        Serial.print("Corona LEFT dot pos init: ");
+                        Serial.println(coronaPosLeft);
+                        Serial.print("Corona RIGHT dot pos init: ");
+                        Serial.println(coronaPosRight);
+                    }
                     xplStep = 0;
                     currentSpeed = xplStartSpeed;
                 } else {
@@ -445,6 +456,10 @@ bool bangerClashAnimation(int current_millis) {
                         Serial.print(dotPos);
                         Serial.print(". Speed: ");
                         Serial.println(currentSpeed);
+
+                        if (state == 2) {
+                            Serial.println("Switching to state 2");
+                        }
                     }
                     timer = 0;
                 }            
@@ -452,6 +467,7 @@ bool bangerClashAnimation(int current_millis) {
             
         }
         if (state == 2) { // collision
+            
             const int centerPos[2] =  { (NUM_LEDS / 2) - 1, (NUM_LEDS / 2) };
             
 
@@ -481,52 +497,91 @@ bool bangerClashAnimation(int current_millis) {
                     leds[centerPos[0] - posOffset] = CHSV(currentColourCorona[0], currentColourCorona[1], currentColourCorona[2]);
                     leds[centerPos[1] + posOffset] = CHSV(currentColourCorona[0], currentColourCorona[1], currentColourCorona[2]);
                 }
-            //} else {
+            } else {
             //    state = 3;
+                Serial.println("END OF CORE XPLS");
             }
 
+            if (xplStep < 27) {
+                coronaLeftDots[xplStep] = 255;
+                coronaRightDots[xplStep] = 255;
+            } 
+            if (xplStep > 0) {
+                for (int idx = 0; idx < xplStep; idx++) {
+                    if (coronaLeftDots[idx] > 0) {
+                        coronaLeftDots[idx] -= 256/64;
+                        coronaRightDots[idx] -= 256/64;
+                    }        
+                }
+            }
+
+            for (idx = 0; idx < 27; idx++) {
+                leds[27 - idx] = CHSV(0, 255, constrain(coronaLeftDots[idx],0,255));
+                leds[32 + idx] = CHSV(0, 255, constrain(coronaRightDots[idx],0,255));
+            }
+
+            if ( (xplStep > 27) && (coronaLeftDots[27] <= 0) ) {
+                state = 3;
+                Serial.println("END OF CORONA XPLS");
+            }
+            /*
             //RED CORONA
             float movement = (float)(timer)/(float)(currentSpeed);
             if (movement >= 0.75) { // dot moves to next cell 
                 
                 // calculate 
                 dotSize = constrain((int)movement,1,30);
-                dotPos -= (int)round(movement+0.5);
-                if (DEBUG) {
-                    Serial.print("Corona. dotPos:  ");
-                    Serial.print(dotPos);
-                    Serial.print(", dotSize:  ");
+                if (DEBUG) {    
+                    Serial.print("CORONA LOOP. Corona dot size due to speed: ");
                     Serial.println(dotSize);
                 }
-                if (dotPos  < 0) {
+                coronaPosLeft -= dotSize; //(int)round(movement+0.5); // goes down as it goes closer to edge
+                coronaPosRight += dotSize; //(int)round(movement+0.5);
+                if (coronaPosLeft + dotSize  < 0) {
                     state = 3; // end
+                    fill_solid(leds, NUM_LEDS, CRGB::Black);
                 } else {
                     brightness = 255;
                     //brightness = (int)expScale((float)dotPos,0.0,29.0,(float)20,(float)300,4.0);
                     //brightness = constrain(brightness,0,255);
                     //int brightnessTail = brightness;
                     
-                    for (int cnt = 0; cnt < dotSize; cnt++) {   
+                    for (int cnt = 1; cnt <= dotSize; cnt++) {   
                         //brightnessTail = constrain(int( (float) brightnessTail * (1.0 - ( (float)cnt / 10.0) )),
-                        //  0,255);     
-                        leds[dotPos - cnt] = CHSV(0, 255, brightness);
-                        leds[(NUM_LEDS/2) + dotPos - 1 + cnt] = CHSV(0, 255, brightness);
+                        //  0,255); 
+                        int pos = coronaPosLeft + cnt;
+                        if ( (pos > dotSize * -1) && (pos < centerPos[0] - coronaPosOffsetInit)) {
+                            if (DEBUG) {    
+                                Serial.print("Left size. Dot @pos: ");
+                                Serial.println(pos);
+                            }
+                            leds[pos] = CHSV(0, 255, brightness);
+                        }
+                        
+                        pos = constrain(coronaPosRight - cnt, centerPos[1] + coronaPosOffsetInit, 100);
+                        if ( (pos > NUM_LEDS + dotSize ) && (pos > centerPos[1] + coronaPosOffsetInit)) {                            
+                            if (DEBUG) {    
+                                Serial.print("Right size. Dot @pos: ");
+                                Serial.println(pos);
+                            }
+                            leds[pos] = CHSV(0, 255, brightness);
+                        }
                     }
                     
                     currentSpeed = (int)expScale((float)dotPos,0.0,29.0,(float)xplStartSpeed,(float)xplEndSpeed,0.25);
                     if (DEBUG) {
-                        Serial.print("Dot size: ");
-                        Serial.print(dotSize);
-                        Serial.print(", position: ");
-                        Serial.print(dotPos);
+                       
                         Serial.print(". Speed: ");
                         Serial.println(currentSpeed);
+
+                        Serial.println("++++++++++++++++++++++++++++++++++++");
+                        Serial.println("++++++++++++++++++++++++++++++++++++");
                     }
                     
                 }  
                 timer = 0;          
             }
-            
+            */
 
             xplStep++;
         }
