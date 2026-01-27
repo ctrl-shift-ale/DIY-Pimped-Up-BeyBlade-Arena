@@ -372,6 +372,8 @@ bool bangerClashAnimation(int current_millis) {
     static int coronaPosRight =0;
     static int coronaLeftDots[27] = {0};
     static int coronaRightDots[27] = {0};
+    static bool doneCore = false;
+    static bool doneCorona = false;
     // Debug output
     if (DEBUG) {
         Serial.print("Function call bangerClashAnimation. State ");
@@ -388,6 +390,8 @@ bool bangerClashAnimation(int current_millis) {
         dotSize = 1;
         dotSizeHis = 1;
         brightness = 20;
+        doneCore = false;
+        doneCorona = false;
         // dot 1 on edge of led strip
         colour_1 = random(256); // dot 1
         leds[0] = CHSV(colour_1, 255, brightness);
@@ -498,31 +502,51 @@ bool bangerClashAnimation(int current_millis) {
                     leds[centerPos[1] + posOffset] = CHSV(currentColourCorona[0], currentColourCorona[1], currentColourCorona[2]);
                 }
             } else {
-            //    state = 3;
+                doneCore = true;
                 Serial.println("END OF CORE XPLS");
             }
 
-            if (xplStep < 27) {
-                coronaLeftDots[xplStep] = 255;
-                coronaRightDots[xplStep] = 255;
-            } 
             if (xplStep > 0) {
-                for (int idx = 0; idx < xplStep; idx++) {
-                    if (coronaLeftDots[idx] > 0) {
-                        coronaLeftDots[idx] -= 256/64;
-                        coronaRightDots[idx] -= 256/64;
-                    }        
+                if (xplStep < 8) {
+                    for (int idx = (xplStep-1)*4; idx < (xplStep-1)*4 + 4; idx++) {
+                        if (idx < 27) {
+                            coronaLeftDots[idx] = 255;
+                            coronaRightDots[idx] = 255;
+                        }
+                    }
+                } 
+                
+                if (xplStep > 1) {  
+                    for (int idx = 0; idx < (xplStep-1)*4; idx++) {
+                        if (idx < 27) {
+                            if (coronaLeftDots[idx] > 0) {
+                                coronaLeftDots[idx] -= 256/16;
+                                coronaRightDots[idx] -= 256/16;
+                            } 
+                        }
+                    }
                 }
-            }
+                if ( (coronaLeftDots[26] <= 0)
+                &&  (xplStep > 8) ) {
+                    doneCorona = true;
+                }
+                
+                Serial.println("~~~~~~~~~~~~~~~~~~~~~~~");
+                Serial.print("STEP ");
+                Serial.println(xplStep );
+                Serial.print("brightness of last led: ");
+                Serial.println(coronaLeftDots[26]);
+                Serial.println("~~~~~~~~~~~~~~~~~~~~~~~");
 
-            for (idx = 0; idx < 27; idx++) {
-                leds[27 - idx] = CHSV(0, 255, constrain(coronaLeftDots[idx],0,255));
-                leds[32 + idx] = CHSV(0, 255, constrain(coronaRightDots[idx],0,255));
-            }
+                for (int idx = 0; idx < 27; idx++) {
+                    leds[26 - idx] = CHSV(0, 255, constrain(coronaLeftDots[idx],0,255));
+                    leds[33 + idx] = CHSV(0, 255, constrain(coronaRightDots[idx],0,255));
+                }
 
-            if ( (xplStep > 27) && (coronaLeftDots[27] <= 0) ) {
-                state = 3;
-                Serial.println("END OF CORONA XPLS");
+                if ( (doneCore) && (doneCorona) ) {
+                    state = 3;
+                    Serial.println("END OF EXPLOSION");
+                }
             }
             /*
             //RED CORONA
