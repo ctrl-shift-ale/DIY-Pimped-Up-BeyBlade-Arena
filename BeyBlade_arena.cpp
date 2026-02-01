@@ -5,18 +5,30 @@
 // ============================================================================
 // PIN DEFINITIONS
 // ============================================================================
-#define LED_PIN 5          // NeoPixel data pin (can use D2-D12)
-#define MIC_PIN A1         // Piezo mic on analog pin A1
-#define NUM_LEDS 60        // Number of LEDs in strip
-#define ONBOARD_LED 13     // Onboard LED pin for debugging
+
+// OUTPUTS
+#define LED_PIN 5           // NeoPixel data pin (can use D2-D12)
+#define LASER_PIN_A 6       // Laser A data pin
+#define LASER_PIN_B 7       // Laser B data pin
+#define LASER_PIN_C 8       // Laser C data pin
+#define LASER_PIN_D 9       // Laser D data pin
+#define ONBOARD_LED 13      // Onboard LED pin for debugging
+
+// INPUTS
+#define MIC_PIN A1          // Piezo mic on analog pin A1
+
+
+#define NUM_LEDS 60         // Number of LEDs in strip
+#define NUM_LASERS 4        // Number of LASERS
 
 // ============================================================================
 // TEST MODES
 // ============================================================================
 #define NO_TEST -1
-#define TEST_PIEZO 0       // Test piezo microphone readings
-#define TEST_LED 1         // Test LED strip with color cycle
-#define TEST_BANGERCLASH 2 // Test "BangerCrash" LED animation
+#define TEST_PIEZO 0        // Test piezo microphone readings
+#define TEST_LED 1          // Test LED strip with color cycle
+#define TEST_BANGERCLASH 2  // Test "BangerCrash" LED animation
+#define TEST_LASERS 3       // Test Lasers by turning them on and off 
 
 int TEST_MODE = TEST_BANGERCLASH;   // Change to enable test mode
 
@@ -26,7 +38,7 @@ int TEST_MODE = TEST_BANGERCLASH;   // Change to enable test mode
 #define DEBUG true         // Enable serial debug output
 
 // ============================================================================
-// ANIMATION TYPES
+// LED ANIMATION TYPES
 // ============================================================================
 #define NO_ANIMATION -1
 #define VMETER 0           // Volume meter (green->yellow->orange->red)
@@ -35,7 +47,7 @@ int TEST_MODE = TEST_BANGERCLASH;   // Change to enable test mode
 int CLASH_ANIMATION = FLASH; // Select animation type
 
 // ============================================================================
-// LED STATES
+// STATES
 // ============================================================================
 #define OFF 0              // LEDs off, idle state
 #define CLASH_NEW 1        // New peak detected, animation starting
@@ -67,9 +79,10 @@ float SCALE_PIEZO_INPUT_EXPONENT = 2.0;  // Input signal scaling
 float SCALE_BRIGHTNESS_DECAY_EXPONENT = 2.0;    // Intensity decay scaling
 
 // ============================================================================
-// LED ARRAY
+// LED and LASERS ARRAYs
 // ============================================================================
 CRGB leds[NUM_LEDS];
+const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -246,6 +259,29 @@ void testLEDStrip() {
         
         FastLED.show();
         testState = (testState + 1) % 5;
+    }
+}
+
+/**
+ * Test lasers - lasers switch on and off at 1Hz rate
+ */
+void testLasers() {
+    static unsigned long lastChange = 0;
+    static bool laserState = false;
+    
+    if (millis() - lastChange >= 500) {  // Toggle every 500ms = 1Hz
+        lastChange = millis();
+        laserState = !laserState;
+        
+        // Set all laser pins to the current state
+        for (int i = 0; i < NUM_LASERS; i++) {
+            digitalWrite(lasers[i], laserState ? HIGH : LOW);
+        }
+        
+        if (DEBUG) {
+            Serial.print("Lasers: ");
+            Serial.println(laserState ? "ON" : "OFF");
+        }
     }
 }
 
@@ -548,64 +584,6 @@ bool bangerClashAnimation(int current_millis) {
                     Serial.println("END OF EXPLOSION");
                 }
             }
-            /*
-            //RED CORONA
-            float movement = (float)(timer)/(float)(currentSpeed);
-            if (movement >= 0.75) { // dot moves to next cell 
-                
-                // calculate 
-                dotSize = constrain((int)movement,1,30);
-                if (DEBUG) {    
-                    Serial.print("CORONA LOOP. Corona dot size due to speed: ");
-                    Serial.println(dotSize);
-                }
-                coronaPosLeft -= dotSize; //(int)round(movement+0.5); // goes down as it goes closer to edge
-                coronaPosRight += dotSize; //(int)round(movement+0.5);
-                if (coronaPosLeft + dotSize  < 0) {
-                    state = 3; // end
-                    fill_solid(leds, NUM_LEDS, CRGB::Black);
-                } else {
-                    brightness = 255;
-                    //brightness = (int)expScale((float)dotPos,0.0,29.0,(float)20,(float)300,4.0);
-                    //brightness = constrain(brightness,0,255);
-                    //int brightnessTail = brightness;
-                    
-                    for (int cnt = 1; cnt <= dotSize; cnt++) {   
-                        //brightnessTail = constrain(int( (float) brightnessTail * (1.0 - ( (float)cnt / 10.0) )),
-                        //  0,255); 
-                        int pos = coronaPosLeft + cnt;
-                        if ( (pos > dotSize * -1) && (pos < centerPos[0] - coronaPosOffsetInit)) {
-                            if (DEBUG) {    
-                                Serial.print("Left size. Dot @pos: ");
-                                Serial.println(pos);
-                            }
-                            leds[pos] = CHSV(0, 255, brightness);
-                        }
-                        
-                        pos = constrain(coronaPosRight - cnt, centerPos[1] + coronaPosOffsetInit, 100);
-                        if ( (pos > NUM_LEDS + dotSize ) && (pos > centerPos[1] + coronaPosOffsetInit)) {                            
-                            if (DEBUG) {    
-                                Serial.print("Right size. Dot @pos: ");
-                                Serial.println(pos);
-                            }
-                            leds[pos] = CHSV(0, 255, brightness);
-                        }
-                    }
-                    
-                    currentSpeed = (int)expScale((float)dotPos,0.0,29.0,(float)xplStartSpeed,(float)xplEndSpeed,0.25);
-                    if (DEBUG) {
-                       
-                        Serial.print(". Speed: ");
-                        Serial.println(currentSpeed);
-
-                        Serial.println("++++++++++++++++++++++++++++++++++++");
-                        Serial.println("++++++++++++++++++++++++++++++++++++");
-                    }
-                    
-                }  
-                timer = 0;          
-            }
-            */
 
             xplStep++;
         }
@@ -632,6 +610,13 @@ void setup() {
     FastLED.clear();
     FastLED.show();
     
+    // Add to setup() function, after the onboard LED initialization:
+    // Initialize laser pins as outputs
+    for (int i = 0; i < NUM_LASERS; i++) {
+        pinMode(lasers[i], OUTPUT);
+        digitalWrite(lasers[i], LOW);
+    }
+
     // Set analog reference to default (5V on Nano)
     analogReference(DEFAULT);
   
@@ -648,6 +633,12 @@ void setup() {
         Serial.println("LEDs will cycle: WHITE -> RED -> GREEN -> BLUE -> OFF");
         Serial.print("Number of LEDs: ");
         Serial.println(NUM_LEDS);
+        Serial.println("====================================");
+    } else if (TEST_MODE == TEST_LASERS) {
+        Serial.println("=== LASERS TEST MODE ENABLED ===");
+        Serial.println("Lasers will switch on and off at 1 Hz rate");
+        Serial.print("Number of lasers: ");
+        Serial.println(NUM_LASERS);
         Serial.println("====================================");
     } else if (TEST_MODE == TEST_BANGERCLASH) {
         Serial.println("=== LED BANGERCLASH ANIMATION TEST MODE ENABLED ===");
@@ -677,6 +668,11 @@ void loop() {
   
     if (TEST_MODE == TEST_LED) {
         testLEDStrip();
+        return;
+    }
+
+    if (TEST_MODE == TEST_LASERS) {
+        testLasers();
         return;
     }
 
