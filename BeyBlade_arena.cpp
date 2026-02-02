@@ -83,6 +83,7 @@ float SCALE_BRIGHTNESS_DECAY_EXPONENT = 2.0;    // Intensity decay scaling
 // ============================================================================
 CRGB leds[NUM_LEDS];
 const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
+int lasersState[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -275,7 +276,9 @@ void testLasers() {
         
         // Set all laser pins to the current state
         for (int i = 0; i < NUM_LASERS; i++) {
-            digitalWrite(lasers[i], laserState ? HIGH : LOW);
+            //digitalWrite(lasers[i], laserState ? HIGH : LOW);
+            //lasersState[i] = laserState ? HIGH : LOW;
+            setLaser(idx, laserState ? HIGH : LOW);
         }
         
         if (DEBUG) {
@@ -381,6 +384,7 @@ bool ledVmeterAnimation(float signal, unsigned long currentMillis) {
  * @param currentMillis: Current timestamp for fade timing
  * @return: true if animation is still active, false if complete
  */
+
 bool bangerClashAnimation(int current_millis) {
     static int colour_1 = 0;
     static int colour_2 = 0;
@@ -593,6 +597,31 @@ bool bangerClashAnimation(int current_millis) {
     FastLED.show();
     return (state != 3);
 }
+
+/**
+ * V-meter animation - progressive color zones (green->yellow->orange->red)
+ * 
+ * @param rate: cycles per second
+ * @param currentMillis: Current timestamp from main Loop
+ * @return: true if animation is still active, false if complete
+ */
+void laserSwirlAnimation(float rate, unsigned long currentMillis) {
+ 
+  // LED color zone thresholds
+    static int lastUpdate = 0;
+
+    int deltaTime = currentMillis - lastUpdate;
+
+
+
+    lastUpdate = currentMillis;
+    
+}
+
+void setLaser(idx, switch_state) {
+    digitalWrite(lasers[idx], switch_state);
+    lasersState[idx] = switch_state;
+}
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -614,7 +643,9 @@ void setup() {
     // Initialize laser pins as outputs
     for (int i = 0; i < NUM_LASERS; i++) {
         pinMode(lasers[i], OUTPUT);
-        digitalWrite(lasers[i], LOW);
+        //digitalWrite(lasers[i], LOW);
+        //lasersState[i] = LOW;
+        setLaser(i,LOW)
     }
 
     // Set analog reference to default (5V on Nano)
