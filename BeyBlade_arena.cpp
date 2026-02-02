@@ -30,7 +30,7 @@
 #define TEST_BANGERCLASH 2  // Test "BangerCrash" LED animation
 #define TEST_LASERS 3       // Test Lasers by turning them on and off 
 
-int TEST_MODE = TEST_BANGERCLASH;   // Change to enable test mode
+int TEST_MODE = TEST_LASERS;   // Change to enable test mode
 
 // ============================================================================
 // DEBUG SETTINGS
@@ -83,7 +83,7 @@ float SCALE_BRIGHTNESS_DECAY_EXPONENT = 2.0;    // Intensity decay scaling
 // ============================================================================
 CRGB leds[NUM_LEDS];
 const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
-int lasersState[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
+int lasersState[NUM_LASERS] = {LOW, LOW, LOW, LOW};
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -276,14 +276,15 @@ void testLasers() {
         
         // Set all laser pins to the current state
         for (int i = 0; i < NUM_LASERS; i++) {
-            //digitalWrite(lasers[i], laserState ? HIGH : LOW);
+            digitalWrite(lasers[i], laserState ? HIGH : LOW);
             //lasersState[i] = laserState ? HIGH : LOW;
-            setLaser(idx, laserState ? HIGH : LOW);
+            //setLaser(i, laserState ? HIGH : LOW);
         }
         
         if (DEBUG) {
             Serial.print("Lasers: ");
-            Serial.println(laserState ? "ON" : "OFF");
+            Serial.print(laserState);
+            //Serial.println(laserState ? "ON" : "OFF");
         }
     }
 }
@@ -598,6 +599,16 @@ bool bangerClashAnimation(int current_millis) {
     return (state != 3);
 }
 
+// ============================================================================
+// LASERS FUNCTIONS
+// ============================================================================
+
+
+void setLaser(int idx, int switch_state) {
+    digitalWrite(lasers[idx], switch_state);
+    lasersState[idx] = switch_state;
+}
+
 /**
  * V-meter animation - progressive color zones (green->yellow->orange->red)
  * 
@@ -605,23 +616,43 @@ bool bangerClashAnimation(int current_millis) {
  * @param currentMillis: Current timestamp from main Loop
  * @return: true if animation is still active, false if complete
  */
-void laserSwirlAnimation(float rate, unsigned long currentMillis) {
+void laserSwirlAnimation(float rate, int n_lasers_on, unsigned long currentMillis) {
  
-  // LED color zone thresholds
-    static int lastUpdate = 0;
+    static unsigned long lastUpdate = 0;
+    static int countDown = 0;
+    static int laserIdx = 0;
+    
+    int nLasers = n_lasers_on >= NUM_LASERS ? NUM_LASERS - 1 : n_lasers_on;
+    if (n_lasers_on <= 0) {
+        return;
+    }
+
+    float change = 1000.0 / rate; // ms per cycle
+    
 
     int deltaTime = currentMillis - lastUpdate;
+    countDown -= deltaTime;
 
+     
+
+    if (countDown <= 0) { // new change
+        countDown = (int)change;
+        // reset laser state
+        for (int i = 0; i < NUM_LASERS; i++) {
+            setLaser(i,LOW);
+        }    
+        for (int i = laserIdx; i < n_lasers_on; i++) {
+            int wrappedIdx = wrap(laserIdx, 0, NUM_LASERS);
+            setLaser(wrappedIdx,HIGH);
+        }
+    }
 
 
     lastUpdate = currentMillis;
     
 }
 
-void setLaser(idx, switch_state) {
-    digitalWrite(lasers[idx], switch_state);
-    lasersState[idx] = switch_state;
-}
+
 // ============================================================================
 // SETUP
 // ============================================================================
@@ -645,7 +676,7 @@ void setup() {
         pinMode(lasers[i], OUTPUT);
         //digitalWrite(lasers[i], LOW);
         //lasersState[i] = LOW;
-        setLaser(i,LOW)
+        setLaser(i,LOW);
     }
 
     // Set analog reference to default (5V on Nano)
