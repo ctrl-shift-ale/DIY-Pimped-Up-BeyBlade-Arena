@@ -7,11 +7,11 @@
 // ============================================================================
 
 // OUTPUTS
-#define LED_PIN 5           // NeoPixel data pin (can use D2-D12)
-#define LASER_PIN_A 6       // Laser A data pin
-#define LASER_PIN_B 7       // Laser B data pin
-#define LASER_PIN_C 8       // Laser C data pin
-#define LASER_PIN_D 9       // Laser D data pin
+#define LED_PIN 10           // NeoPixel data pin (can use D2-D12)
+#define LASER_PIN_A 5       // Laser A data pin
+#define LASER_PIN_B 6       // Laser B data pin
+#define LASER_PIN_C 7       // Laser C data pin
+#define LASER_PIN_D 8       // Laser D data pin
 #define ONBOARD_LED 13      // Onboard LED pin for debugging
 
 // INPUTS
