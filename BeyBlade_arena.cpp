@@ -8,10 +8,10 @@
 
 // OUTPUTS
 #define LED_PIN 10           // NeoPixel data pin (can use D2-D12)
-#define LASER_PIN_A 5       // Laser A data pin
+#define LASER_PIN_A 5 //5       // Laser A data pin
 #define LASER_PIN_B 6       // Laser B data pin
-#define LASER_PIN_C 7       // Laser C data pin
-#define LASER_PIN_D 8       // Laser D data pin
+#define LASER_PIN_C 7 //7       // Laser C data pin
+#define LASER_PIN_D 8 //8       // Laser D data pin
 #define ONBOARD_LED 13      // Onboard LED pin for debugging
 
 // INPUTS
@@ -82,8 +82,8 @@ float SCALE_BRIGHTNESS_DECAY_EXPONENT = 2.0;    // Intensity decay scaling
 // LED and LASERS ARRAYs
 // ============================================================================
 CRGB leds[NUM_LEDS];
-const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
-int lasersState[NUM_LASERS] = {LOW, LOW, LOW, LOW};
+const int lasers[4] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
+int lasersState[4] = {LOW, LOW, LOW, LOW};
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -92,6 +92,7 @@ float loudness = 0.0;       // Current loudness (0.0 - 1.0)
 float loudnessHis = 0.0;    // Previous loudness value for peak detection
 float intensity = 0.0;      // PLACEHOLDER FOR FUTURE DEVELOPMENT
 
+unsigned long currentMillis = 0; // TIMER
 unsigned long lastUpdate = 0;           // Main loop timing
 
 // ============================================================================
@@ -264,27 +265,31 @@ void testLEDStrip() {
 }
 
 /**
- * Test lasers - lasers switch on and off at 1Hz rate
+ * Test lasers - lasers switch on and off, one by one, at 1Hz rate
  */
 void testLasers() {
     static unsigned long lastChange = 0;
-    static bool laserState = false;
-    
-    if (millis() - lastChange >= 500) {  // Toggle every 500ms = 1Hz
-        lastChange = millis();
-        laserState = !laserState;
-        
-        // Set all laser pins to the current state
-        for (int i = 0; i < NUM_LASERS; i++) {
-            digitalWrite(lasers[i], laserState ? HIGH : LOW);
-            //lasersState[i] = laserState ? HIGH : LOW;
-            //setLaser(i, laserState ? HIGH : LOW);
-        }
-        
-        if (DEBUG) {
-            Serial.print("Lasers: ");
-            Serial.print(laserState);
-            //Serial.println(laserState ? "ON" : "OFF");
+    static int laserIdx = 0;
+    bool blink = true;
+
+    if (!blink) {
+        digitalWrite(lasers[0], HIGH);
+        digitalWrite(lasers[1], HIGH);
+        digitalWrite(lasers[2], HIGH);
+        digitalWrite(lasers[3], HIGH);
+    } else {
+        if (millis() - lastChange >= 100) {  // Toggle every 500ms = 1Hz
+            lastChange = millis();
+            digitalWrite(lasers[wrap(laserIdx - 1, 0, NUM_LASERS - 1)], LOW);
+            digitalWrite(lasers[wrap(laserIdx, 0, NUM_LASERS - 1)], HIGH);
+            
+            if (DEBUG) {
+                Serial.print("Laser on : ");
+                Serial.println(laserIdx);
+                //Serial.println(laserState ? "ON" : "OFF");
+            }
+
+            laserIdx = wrap(laserIdx + 1, 0, NUM_LASERS - 1);       
         }
     }
 }
@@ -652,7 +657,14 @@ void laserSwirlAnimation(float rate, int n_lasers_on, unsigned long currentMilli
     
 }
 
+// ============================================================================
+// INTENSITY FUNCTIONS
+// ============================================================================
 
+void refreshIntensity(float intensity_in) {
+    
+    // intensity
+}
 // ============================================================================
 // SETUP
 // ============================================================================
