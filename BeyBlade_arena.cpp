@@ -21,6 +21,8 @@
 #define NUM_LEDS 60         // Number of LEDs in strip
 #define NUM_LASERS 4        // Number of LASERS
 
+// CONFIG
+#define timeBeforeIdle =  10000; // after 10s of complete silence, go to idle mode
 // ============================================================================
 // TEST MODES
 // ============================================================================
@@ -49,13 +51,26 @@ int CLASH_ANIMATION = FLASH; // Select animation type
 // ============================================================================
 // STATES
 // ============================================================================
-#define OFF 0              // LEDs off, idle state
-#define CLASH_NEW 1        // New peak detected, animation starting
-#define CLASH_ONGOING 2    // Animation in progress, fading
-#define PATTERN 3          // Reserved for future pattern mode
+#define IDLE 0              // LEDs off, idle state
+#define GAME 1        // New peak detected, animation starting
 
-int STATE = OFF;
+int SYSTEM_STATE = IDLE;
 
+// LEDS
+#define LEDS_OFF 0
+#define LEDS_IDLE 1
+#define LEDS_RESPONSIVE 2
+#define LEDS_BANGER 3
+
+int LEDS_STATE = LEDS_IDLE;
+
+// LASERS
+#define LASERS_STEADY 1
+#define LASERS_SWIRL 2
+#define LASERS_RANDOM 3
+#define LASERS_FLASHING 4
+
+int LASERS_STATE = LASERS_SWIRL;
 // ============================================================================
 // AUDIO PARAMETERS
 // ============================================================================
@@ -91,6 +106,7 @@ int lasersState[4] = {LOW, LOW, LOW, LOW};
 float loudness = 0.0;       // Current loudness (0.0 - 1.0)
 float loudnessHis = 0.0;    // Previous loudness value for peak detection
 float intensity = 0.0;      // PLACEHOLDER FOR FUTURE DEVELOPMENT
+unsigned long idleTimer = 0;
 
 unsigned long currentMillis = 0; // TIMER
 unsigned long lastUpdate = 0;           // Main loop timing
@@ -657,6 +673,12 @@ void laserSwirlAnimation(float rate, int n_lasers_on, unsigned long currentMilli
     
 }
 
+void setAllLasers(state) {
+    for (int i = 0; i < NUM_LASERS; i++) {
+        setLaser(i,state);
+    }   
+}
+
 // ============================================================================
 // INTENSITY FUNCTIONS
 // ============================================================================
@@ -664,6 +686,40 @@ void laserSwirlAnimation(float rate, int n_lasers_on, unsigned long currentMilli
 void refreshIntensity(float intensity_in) {
     
     // intensity
+}
+
+void refreshState() {
+    if (SYSTEM_STATE == IDLE) {
+        LEDS_STATE = LEDS_IDLE;
+        LASERS_STATE = LASERS_SWIRL;
+    } else if (SYSTEM_STATE == GAME) {
+        LEDS_STATE = LEDS_RESPONSIVE;
+        LASERS_STATE = LASERS_STEADY;
+    }
+}
+
+    /*
+    #define IDLE 0              // LEDs off, idle state
+#define GAME 1        // New peak detected, animation starting
+
+int SYSTEM_STATE = IDLE;
+
+// LEDS
+#define LEDS_OFF 0
+#define LEDS_IDLE 1
+#define LEDS_RESPONSIVE 2
+#define LEDS_BANGER 3
+
+int LEDS_STATE = LEDS_IDLE;
+
+// LASERS
+#define LASERS_STEADY 1
+#define LASERS_SWIRL 2
+#define LASERS_RANDOM 3
+#define LASERS_FLASHING 4
+
+int LASERS_STATE = LASERS_SWIRL;
+*/
 }
 // ============================================================================
 // SETUP
@@ -725,6 +781,8 @@ void setup() {
         Serial.println(CLASH_ANIMATION == FLASH ? "FLASH" : "VMETER");
         Serial.println("===================");
     }
+
+    SYSTEM_STATE = IDLE;
 }
 
 // ============================================================================
@@ -760,18 +818,41 @@ void loop() {
         // ========================================
         
         unsigned long currentMillis = millis();
+        
         static unsigned long lastUpdateLed = 0;
         static int clashTimer = 0;
         static float flashAnimationBrightness_f = 0.0; // Range 0.0 to 255.0
         static int flashAnimationHue = 0;              // Range 0 to 255
         static bool isActiveClashAnimation = false;
+
+        int tick = currentMillis - lastUpdate;
+
+        int systemStateHis = SYSTEM_STATE;
+        int ledsStateHis = LEDS_STATE;
+        int lasersStateHis = LASERS_STATE;
         
         // Main update rate throttling
-        if (currentMillis - lastUpdate >= UPDATE_RATE_MAIN) {
+        if (tick >= UPDATE_RATE_MAIN) {
             
             // Read and process audio signal
             loudness = readMicLevel();
-                
+
+            // check if system is in GAME or IDLE mode
+            if (loudness == 0.0) {
+                idleTimer += tick;
+            } else {
+                idleTimer = 0;
+            }
+
+            if (idleTimer > timeBeforeIdle) {
+                SYSTEM_STATE = IDLE;       
+            } else {
+                SYSTEM_STATE = GAME;       
+            }
+            
+            if (systemStateHis != SYSTEM_STATE) {
+                refreshState();
+            }
             // Debug output
             if (DEBUG) {
                 Serial.print("Loudness: ");
@@ -779,86 +860,71 @@ void loop() {
                 Serial.print(" | State: ");
                 Serial.println(STATE);
             }
-        
+            
+
+            // ========================================
+            // LEDS
+            // ========================================
             // main/animation update at separate rate (main must me the fastest)
             if (currentMillis - lastUpdateLed >= UPDATE_RATE_LED) {
         
-                // ========================================
-                // CLASH ANIMATIONS
-                // ========================================
-                // Two types:
-                // - FLASH: Random color flash with brightness proportional to loudness
-                // - VMETER: Green->yellow->orange->red progressive meter
-            
-                if (CLASH_ANIMATION != NO_ANIMATION) {
-                    // Check if there's active audio signal
-                    if (!isActiveClashAnimation) {
-                        STATE = OFF;
-                        //FastLED.clear();
-                        //FastLED.show();
-                        isActiveClashAnimation = (loudness > 0.0);
-                    }
-            
-                    if (isActiveClashAnimation) {
 
-                        // Detect new loudness peak (trigger animation reset)
-                        if (loudness > loudnessHis) {
-                            STATE = CLASH_NEW;
+                if (LEDS_STATE == LEDS_RESPONSIVE) {
+                    bool newClash = (loudness > loudnessHis);
+                    int flashAnimationBrightness = 0;
+                   
+                    if (newClash) {           
+                        // Initialize flash animation
+                        clashTimer = FLASH_SETTLING_TIME;
+                        flashAnimationBrightness_f = loudness * 255.0;
+                        flashAnimationBrightness = (int)(flashAnimationBrightness_f);
+                        // Pick random hue, avoiding similar colors
+                        flashAnimationHue = wrap(flashAnimationHue + random(63, 191), 0, 255);
+                    } else {
+                        clashTimer -= UPDATE_RATE_LED;
+                        
+                        if (clashTimer <= 0) {
+                            // End of flash animation
+                            fill_solid(leds, NUM_LEDS, CRGB::Black);
+                            FastLED.show();
+                            isActiveClashAnimation = false;
                         } else {
-                            // No new peak - fade out / release
-                            STATE = CLASH_ONGOING;
+                            // Calculate fading brightness
+                            flashAnimationBrightness = (int)(
+                                flashAnimationBrightness_f * 
+                                expScale((float)clashTimer, 0.0, (float)FLASH_SETTLING_TIME, 
+                                        0.0, 1.0, SCALE_BRIGHTNESS_DECAY_EXPONENT)
+                            );
                         }
-                    
-                        // CLASH ANIMATIONS
-                        if (CLASH_ANIMATION == FLASH) {
-                            int flashAnimationBrightness = 0;
-                            if (STATE == CLASH_NEW) {
-                                // Initialize flash animation
-                                clashTimer = FLASH_SETTLING_TIME;
-                                flashAnimationBrightness_f = loudness * 255.0;
-                                flashAnimationBrightness = (int)(flashAnimationBrightness_f);
-                                // Pick random hue, avoiding similar colors
-                                flashAnimationHue = wrap(flashAnimationHue + random(63, 191), 0, 255);
-                            }    
-                            if (STATE == CLASH_ONGOING) {
-                                clashTimer -= UPDATE_RATE_LED;
-                                
-                                if (clashTimer <= 0) {
-                                    // End of flash animation
-                                    fill_solid(leds, NUM_LEDS, CRGB::Black);
-                                    FastLED.show();
-                                    isActiveClashAnimation = false;
-                                } else {
-                                    // Calculate fading brightness
-                                    flashAnimationBrightness = (int)(
-                                        flashAnimationBrightness_f * 
-                                        expScale((float)clashTimer, 0.0, (float)FLASH_SETTLING_TIME, 
-                                                0.0, 1.0, SCALE_BRIGHTNESS_DECAY_EXPONENT)
-                                    );
-                                }
-                                ledFlashAnimation(flashAnimationHue, flashAnimationBrightness);
-                            }
-                        }
+                        ledFlashAnimation(flashAnimationHue, flashAnimationBrightness);
                         
-                        if (CLASH_ANIMATION == VMETER) {
-                            // V-meter returns false when animation complete
-                            isActiveClashAnimation = ledVmeterAnimation(loudness, currentMillis);
-                            FastLED.show();    
-                        }
-                        
-                    }
-                    
-                    lastUpdateLed = currentMillis;
-                    // Store current loudness for next peak detection
-                    loudnessHis = loudness;
+                    }                
+                }
+
+                if (LEDS_STATE == LEDS_IDLE) {
+                    testLEDStrip();
                 }
                 
+                lastUpdateLed = currentMillis;
+                // Store current loudness for next peak detection
+                loudnessHis = loudness;
             }
+                
             
-          
+            // ========================================
+            // LASERS
+            // ========================================           
+            if (LASERS_STATE == LASERS_SWIRL) {
+                testLasers();
+            }
+            if (lasersStateHis != LASERS_STATE) {
+                if (LASERS_STATE == LASERS_SWIRL) {
+                    setAllLasers(HIGH);
+                }
+            }
 
             lastUpdate = currentMillis;
         }
     }
-  
+    
 }
