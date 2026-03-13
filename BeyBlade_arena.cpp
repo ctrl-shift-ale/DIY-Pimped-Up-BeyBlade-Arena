@@ -7,11 +7,12 @@
 // ============================================================================
 
 // OUTPUTS
-#define LED_PIN 10           // NeoPixel data pin (can use D2-D12)
-#define LASER_PIN_A 5 //5       // Laser A data pin
+#define LED_PIN 10          // NeoPixel data pin (can use D2-D12)
+#define LASER_PIN_A 5       // Laser A data pin 
 #define LASER_PIN_B 6       // Laser B data pin
-#define LASER_PIN_C 7 //7       // Laser C data pin
-#define LASER_PIN_D 8 //8       // Laser D data pin
+#define LASER_PIN_C 9       // Laser C data pin
+#define LASER_PIN_D 7       // Laser D data pin
+#define LASER_PIN_E 8       // Laser E data pin
 #define ONBOARD_LED 13      // Onboard LED pin for debugging
 
 // INPUTS
@@ -19,7 +20,7 @@
 
 
 #define NUM_LEDS 60         // Number of LEDs in strip
-#define NUM_LASERS 4        // Number of LASERS
+#define NUM_LASERS 5        // Number of LASERS
 
 // CONFIG
 #define timeBeforeIdle =  10000; // after 10s of complete silence, go to idle mode
@@ -97,8 +98,8 @@ float SCALE_BRIGHTNESS_DECAY_EXPONENT = 2.0;    // Intensity decay scaling
 // LED and LASERS ARRAYs
 // ============================================================================
 CRGB leds[NUM_LEDS];
-const int lasers[4] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
-int lasersState[4] = {LOW, LOW, LOW, LOW};
+const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D, LASER_PIN_E};
+int lasersState[NUM_LASERS] = {LOW, LOW, LOW, LOW, LOW};
 
 // ============================================================================
 // GLOBAL VARIABLES
@@ -289,10 +290,8 @@ void testLasers() {
     bool blink = true;
 
     if (!blink) {
-        digitalWrite(lasers[0], HIGH);
-        digitalWrite(lasers[1], HIGH);
-        digitalWrite(lasers[2], HIGH);
-        digitalWrite(lasers[3], HIGH);
+        for (int i = 0; i < NUM_LASERS; i++) {
+        digitalWrite(lasers[i], HIGH);
     } else {
         if (millis() - lastChange >= 100) {  // Toggle every 500ms = 1Hz
             lastChange = millis();
@@ -742,8 +741,6 @@ void setup() {
     // Initialize laser pins as outputs
     for (int i = 0; i < NUM_LASERS; i++) {
         pinMode(lasers[i], OUTPUT);
-        //digitalWrite(lasers[i], LOW);
-        //lasersState[i] = LOW;
         setLaser(i,LOW);
     }
 
