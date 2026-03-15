@@ -5,27 +5,33 @@
 // ============================================================================
 // PIN DEFINITIONS
 // ============================================================================
-#define LED_PIN       10
-#define LASER_PIN_A    5
-#define LASER_PIN_B    6
-#define LASER_PIN_C    7
-#define LASER_PIN_D    8
+
+// OUTPUTS
+#define LED_PIN     10      // NeoPixel data pin
+#define LASER_PIN_A 5       // Laser A data pin 
+#define LASER_PIN_B 6       // Laser B data pin
+#define LASER_PIN_C 12      // Laser C data pin
+#define LASER_PIN_D 7       // Laser D data pin
+#define LASER_PIN_E 8       // Laser E data pin
 #define ONBOARD_LED   13
+
+// INPUTS
 #define MIC_PIN       A1
 
+// NUM OF CONTROLLED DEVICES
 #define NUM_LEDS    60
-#define NUM_LASERS   4
+#define NUM_LASERS   5
 
 // ============================================================================
 // TEST MODES
 // ============================================================================
-#define NO_TEST           -1
-#define TEST_PIEZO         0
-#define TEST_LED           1
-#define TEST_BANGERCLASH   2
-#define TEST_LASERS        3
+#define OPERATIVE          -1     
+#define TEST_PIEZO         0    // Test piezo microphone readings
+#define TEST_LED_BASIC     1    // Test LED strip with color cycle
+#define TEST_BANGERCLASH   2    // Test "BangerCrash" LED animation      
+#define TEST_LASERS        3    // Test Lasers by turning them on and off  
 
-int TEST_MODE = NO_TEST;
+int TEST_MODE = OPERATIVE;
 
 // ============================================================================
 // DEBUG
@@ -33,38 +39,55 @@ int TEST_MODE = NO_TEST;
 #define DEBUG true
 
 // ============================================================================
-// ANIMATION TYPES
+// LED STATE
 // ============================================================================
-#define NO_ANIMATION -1
+#define LED_IDLE 0
+#define LED_NEW_ANIMATION       1
+#define LED_ANIMATION_ONGOING   2
+#define LED_ANIMATION_SWIRL     3 // placeholder
+
+int LED_STATE = LED_IDLE;
+
+// ============================================================================
+// LED CLASH RESPONSIVE ANIMATION TYPES
+// ============================================================================
 #define VMETER        0
 #define FLASH         1
+#define COLLISION     2
 
-int CLASH_ANIMATION = FLASH;
+int LED_CLASH_RESPONSE_ANIMATION = FLASH;
+int LED_DEFAULT_ANIMATION = FLASH;
 
 // ============================================================================
-// STATES
+// DETECTED SOUD STATES
 // ============================================================================
-#define OFF           0
-#define CLASH_NEW     1
-#define CLASH_ONGOING 2
+#define NO_SOUND        0
+#define NEW_SOUND       1
+#define SUS_SOUND       2
 
-int STATE = OFF;
+int SOUND_STATE = NO_SOUND;
 
 // ============================================================================
 // AUDIO PARAMETERS
 // ============================================================================
 #define NOISE_GATE      50
-#define SIGNAL_MAX       0.3f
-#define SAMPLE_WINDOW   20    // ms — kept short so audio task doesn't hog the CPU
+#define SIGNAL_MAX      0.3f
+#define SAMPLE_WINDOW   200    // how often we detect a peak
+
+// ============================================================================
+// LEDS PARAMETERS
+// ============================================================================
+#define FLASH_ANIMATION_MAX_BRIGHTESS   180.0f; //range 0.0 to 255.0
 
 // ============================================================================
 // TIMING PARAMETERS  (all in ms)
 // ============================================================================
-#define RATE_AUDIO          25   // how often we sample the mic
-#define RATE_LED            50   // how often we update LED animations
-#define RATE_LASER          30   // how often we update laser animations
-#define FLASH_SETTLE       500   // flash fade duration
-#define VMETER_CELL_FADE    50   // single-cell fade step (vmeter)
+#define RATE_AUDIO                      25   // how often we sample the mic
+#define RATE_LED                        50   // how often we update LED animations
+#define RATE_LASER                     100   // how often we update laser animations
+#define RATE_INTENSITY                 500   // how often we update calculation of intensity
+#define LED_FLASH_RELEASE_TIME         500   // led flash release duration
+#define LED_VMETER_CELL_RELEASE_TIME    50   // led Vmeter single-cell fade release duration
 
 // ============================================================================
 // SCALING
@@ -76,14 +99,20 @@ float DECAY_EXPONENT    = 2.0f;
 // HARDWARE ARRAYS
 // ============================================================================
 CRGB leds[NUM_LEDS];
-const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D};
-int   lasersState[NUM_LASERS] = {LOW, LOW, LOW, LOW};
+const int lasers[NUM_LASERS] = {LASER_PIN_A, LASER_PIN_B, LASER_PIN_C, LASER_PIN_D, LASER_PIN_E};
+int   lasersState[NUM_LASERS] = {LOW, LOW, LOW, LOW, LOW};
 
 // ============================================================================
 // SHARED AUDIO STATE  (written by audio task, read by LED / laser tasks)
 // ============================================================================
 float loudness    = 0.0f;
 float loudnessHis = 0.0f;
+float loudnessExtraPeak = 0.0f;
+
+// ============================================================================
+// INTENSITY
+// ============================================================================
+float intensity = 0.0f;
 
 // ============================================================================
 // TASK SCHEDULER
@@ -109,19 +138,25 @@ struct Task {
 
 // Forward-declare every task callback so we can build the table before the
 // function bodies appear below.
+
+// Operative mode 
 void taskAudio();
 void taskLED();
 void taskLaser();
+void taskIntensity();
+
+// Test modes
 void taskTestPiezo();
 void taskTestLED();
 void taskTestLasers();
-void taskTestBangerClash();
+void taskTestCollisionAnimation();
 
 // Task table — edit intervals or toggle enabled here.
 Task tasks[] = {
     { taskAudio,          RATE_AUDIO,  0, true },
     { taskLED,            RATE_LED,    0, true },
     { taskLaser,          RATE_LASER,  0, true },
+    { taskIntensity,      RATE_INTENSITY,  0, true },
 };
 const int NUM_TASKS = sizeof(tasks) / sizeof(tasks[0]);
 
@@ -130,9 +165,10 @@ Task testTasks[] = {
     { taskTestPiezo,       50,  0, false },
     { taskTestLED,       1000,  0, false },
     { taskTestLasers,     100,  0, false },
-    { taskTestBangerClash, 16,  0, false },  // ~60 fps
+    { taskTestCollisionAnimation, 16,  0, false },  // ~60 fps
 };
 const int NUM_TEST_TASKS = sizeof(testTasks) / sizeof(testTasks[0]);
+unsigned long now = millis();
 
 // ============================================================================
 // UTILITY
@@ -161,13 +197,20 @@ float scalePiezoInput(int rawValue) {
 }
 
 float readMicLevel() {
-    unsigned long start = millis();
-    int peak = 0;
-    while (millis() - start < SAMPLE_WINDOW) {
-        int s = analogRead(MIC_PIN);
+    static int timer = 0;
+    static int peak = 0;
+    int s = analogRead(MIC_PIN);
+    bool end_window = (timer >= SAMPLE_WINDOW);
+    if (end_window) {
+        timer = 0;
+        float scaled_signal = scalePiezoInput(peak);
+        peak = 0;
+        return scaled_signal;
+    } else {
         if (s > peak) peak = s;
-    }
-    return scalePiezoInput(peak);
+        timer += RATE_AUDIO;
+        return NAN;
+    }   
 }
 
 // ============================================================================
@@ -193,7 +236,7 @@ void ledFlashAnimation(int hue, int val) {
 }
 
 // Returns true while animation is still running
-bool ledVmeterAnimation(float signal, unsigned long now) {
+bool ledVmeterAnimation(float signal) {
     static const int greenEnd  = 24;
     static const int yellowEnd = 40;
     static const int orangeEnd = 52;
@@ -201,7 +244,7 @@ bool ledVmeterAnimation(float signal, unsigned long now) {
     static int  nLedsUsedPeak = 0;
     static unsigned long lastFade = 0;
 
-    if (STATE == CLASH_NEW) {
+    if (SOUND_STATE == NEW_SOUND) {
         int target = (int)(signal * NUM_LEDS);
         for (int i = 0; i < NUM_LEDS; i++) {
             if (i < target) {
@@ -217,7 +260,7 @@ bool ledVmeterAnimation(float signal, unsigned long now) {
         lastFade = now;
     }
 
-    if (STATE == CLASH_ONGOING && now - lastFade >= VMETER_CELL_FADE) {
+    if (SOUND_STATE == SOUND_SUS && now - lastFade >= LED_VMETER_CELL_RELEASE_TIME) {
         if (nLedsUsedPeak > 0) {
             leds[--nLedsUsedPeak] = CRGB::Black;
         }
@@ -228,12 +271,12 @@ bool ledVmeterAnimation(float signal, unsigned long now) {
     return (nLedsUsedPeak > 0);
 }
 
-bool bangerClashAnimation(unsigned long now) {
+bool ledCollisionAnimation() {
     // --- same logic as original, just receives millis() value ---
     static int colour_1 = 0, colour_2 = 0;
     static int brightness = 20;
     static int dotPos = 0, dotSize = 1;
-    static int state = 3; // 3 = inactive/end
+    static int state = 3; // 1: dots moving; 2: explosion; 3 = inactive/end
     static unsigned long lastUpdate = 0;
     static const int startSpeed = 100, endSpeed = 2;
     static const int xplStartSpeed = 7;
@@ -261,10 +304,10 @@ bool bangerClashAnimation(unsigned long now) {
         leds[0]           = CHSV(colour_1, 255, brightness);
         leds[NUM_LEDS - 1] = CHSV(colour_2, 255, brightness);
         currentSpeed = startSpeed; timer = 0; xplStep = 0;
-        state = 1;
+        state = 1; //dots moving
         lastUpdate = now;
         FastLED.show();
-        return true;
+        return false;
     }
 
     int deltaTime = (int)(now - lastUpdate);
@@ -281,7 +324,7 @@ bool bangerClashAnimation(unsigned long now) {
             dotPos += (int)round(movement + 0.5f);
 
             if (dotPos >= (NUM_LEDS / 2) - 1) {
-                state = 2;
+                state = 2; // explosion
                 coronaPosLeft  = (NUM_LEDS / 2) - coronaOffsetInit - 1;
                 coronaPosRight = (NUM_LEDS / 2) + coronaOffsetInit;
                 xplStep = 0;
@@ -358,7 +401,7 @@ bool bangerClashAnimation(unsigned long now) {
 
     lastUpdate = now;
     FastLED.show();
-    return (state != 3);
+    return (state == 3);
 }
 
 // ============================================================================
@@ -366,24 +409,60 @@ bool bangerClashAnimation(unsigned long now) {
 // ============================================================================
 
 // --- AUDIO TASK ---
-// Reads mic level and updates shared loudness + STATE.
+// Reads mic level and updates shared loudness + SOUND_STATE.
 void taskAudio() {
-    loudness = readMicLevel();
+    float s = readMicLevel(); // returns value in range 0.0 (noise gate floor) , 1.0 (max threhsold ceiling), or -1.0 when the sample window hasn't finished
+    
+    if (!isnan(s)) { { // wait until the audio sample window is updated
+        loudness = s; // pass the value at the end of sample window
 
-    if (loudness > 0.0f) {
-        STATE = (loudness > loudnessHis) ? CLASH_NEW : CLASH_ONGOING;
-    } else {
-        STATE = OFF;
+        // UPDATE SOUND_STATE
+        if (loudness == 0.0f) { 
+            SOUND_STATE = NO_SOUND;
+        } else {
+            SOUND_STATE = (SOUD_STATE == NO_SOUND) ? NEW_SOUND : SUS_SOUND;
+        }
+
+        // SELECT LED ANIMATION BASED ON CONDITIONS
+        if (LED_CLASH_RESPONSE_ANIMATION != COLLISION) { //no collision animation going on
+        
+            if (loudness == 1.0f) {
+                LED_STATE = LED_NEW_ANIMATION; //LED_ANIMATION_ONGOING
+                LED_CLASH_RESPONSE_ANIMATION = COLLISION;          
+            } else if (loudness > 0.0f) { // if it's flash or v-meter and some audio has been detected
+                if (loudness > loudnessHis) { // new flash animation if new audio sample window is louder than the previous one
+                    if (LED_CLASH_RESPONSE_ANIMATION == FLASH) {
+                        LED_STATE = LED_NEW_ANIMATION;
+                    }
+                } else { // if new audio sample window is not louder than the previous one, yet is louder than 1/4 of the previous one, a minor flash will be added to the flash animation (colour of the flash won't change though)
+                    if (LED_CLASH_RESPONSE_ANIMATION == FLASH) {
+                        if ((LED_STATE = LED_ANIMATION_ONGOING) && (loudnessHis > loudness / 4.0)) {
+                            loudnessExtraPeak += loudnessHis / 2.0;
+                        }
+                    }
+                }
+            }
+            
+        } //else { // no noise detected at all
+
+
+
+        if (DEBUG) {
+            Serial.print("Loudness: "); Serial.print(loudness, 3);
+            Serial.print(" | LED State: "); Serial.print(LED_STATE);
+            Serial.print(" | LED Animation: "); Serial.println(LED_CLASH_RESPONSE_ANIMATION);
+        }
+
+        loudnessHis = loudness;
     }
-
-    if (DEBUG) {
-        Serial.print("Loudness: "); Serial.print(loudness, 3);
-        Serial.print(" | State: "); Serial.println(STATE);
-    }
-
-    loudnessHis = loudness;
 }
 
+// --- INTENSITY TASK ---
+// Accum loudness input, decreases with time if loudness doesn't accum. Controls laser animations
+void taskIntensity() {
+    intensity = // FINO A QUI
+
+}
 // --- LED TASK ---
 // Drives whichever LED animation is selected, based on the current STATE.
 void taskLED() {
@@ -392,12 +471,8 @@ void taskLED() {
     static int    clashTimer         = 0;
     static bool   active             = false;
 
-    if (CLASH_ANIMATION == NO_ANIMATION) return;
-
-    unsigned long now = millis();
-
-    if (!active) {
-        if (STATE == OFF) {
+    if (!active) { // turn all leds off
+        if (SOUND_STATE == NO_SOUND) {
             fill_solid(leds, NUM_LEDS, CRGB::Black);
             FastLED.show();
             return;
@@ -406,38 +481,47 @@ void taskLED() {
     }
 
     // --- FLASH ---
-    if (CLASH_ANIMATION == FLASH) {
-        if (STATE == CLASH_NEW) {
-            clashTimer       = FLASH_SETTLE;
-            flashBrightness_f = loudness * 255.0f;
+    if (LED_CLASH_RESPONSE_ANIMATION == FLASH) {
+        if (SOUND_STATE == NEW_SOUND) {
+            clashTimer = LED_FLASH_RELEASE_TIME;
+            flashBrightness_f = loudness * FLASH_ANIMATION_MAX_BRIGHTESS;
             // Pick a hue that won't look the same as last time
             flashHue = wrap(flashHue + random(63, 191), 0, 255);
-        }
-
-        if (STATE == CLASH_ONGOING || STATE == CLASH_NEW) {
-            if (STATE == CLASH_ONGOING) {
-                clashTimer -= RATE_LED;
-                if (clashTimer <= 0) {
-                    fill_solid(leds, NUM_LEDS, CRGB::Black);
-                    FastLED.show();
-                    active = false;
-                    return;
-                }
+            SOUND_STATE = SOUND_SUS;
+        } else if (SOUND_STATE == SOUND_SUS) {        
+            clashTimer -= RATE_LED;
+            if (clashTimer <= 0) {
+                fill_solid(leds, NUM_LEDS, CRGB::Black);
+                FastLED.show();
+                active = false;
+                return;
             }
-            int bri = (int)(flashBrightness_f *
-                expScale((float)clashTimer, 0.0f, (float)FLASH_SETTLE, 0.0f, 1.0f, DECAY_EXPONENT));
+            
+            // CALCULATE THE BRIGHTNESS
+            int bri = (int)(flashBrightness_f + loudnessExtraPeak) *
+                expScale((float)clashTimer, 0.0f, (float)LED_FLASH_RELEASE_TIME, 0.0f, 1.0f, DECAY_EXPONENT));
             ledFlashAnimation(flashHue, bri);
+            loudnessExtraPeak = 0.0; // reset value
         }
     }
 
     // --- VMETER ---
-    if (CLASH_ANIMATION == VMETER) {
-        active = ledVmeterAnimation(loudness, now);
+    if (LED_CLASH_RESPONSE_ANIMATION == VMETER) {
+        active = ledVmeterAnimation(loudness);
+    }
+
+    // --- COLLISION ---
+    if (LED_CLASH_RESPONSE_ANIMATION == COLLISION) {
+        bool done = ledCollisionAnimation();
+        if (done) {
+            LED_CLASH_RESPONSE_ANIMATION = LED_DEFAULT_ANIMATION; // collision animation finished; back to default
+        }
+
     }
 }
 
 // --- LASER TASK ---
-// Drives the laser swirl effect, also reacting to STATE.
+// Drives the laser animations.
 void taskLaser() {
     // The swirl rate and number of lasers on can be modulated by loudness.
     // Right now: idle = slow 1-laser sweep; on clash = fast multi-laser burst.
@@ -446,12 +530,10 @@ void taskLaser() {
     static int laserIdx = 0;
     static int countDown = 0;
 
-    unsigned long now = millis();
-
     float rate;
     int   nOn;
 
-    if (STATE == OFF) {
+    if (SOUND_STATE == NO_SOUND) {
         rate = 1.0f;  // 1 sweep per second while quiet
         nOn  = 1;
     } else {
@@ -509,8 +591,8 @@ void taskTestLasers() {
     idx = wrap(idx + 1, 0, NUM_LASERS - 1);
 }
 
-void taskTestBangerClash() {
-    bangerClashAnimation(millis());
+void taskTestCollisionAnimation() {
+    ledCollisionAnimation(millis());
 }
 
 // ============================================================================
@@ -536,7 +618,7 @@ void setup() {
     analogReference(DEFAULT);
 
     // --- Configure the task tables for the selected mode ---
-    if (TEST_MODE == NO_TEST) {
+    if (TEST_MODE == OPERATIVE) {
         Serial.println("=== NORMAL MODE ===");
         // All three normal tasks are already enabled by default in the table.
 
@@ -557,9 +639,9 @@ void setup() {
 // ============================================================================
 
 void loop() {
-    unsigned long now = millis();
+    now = millis();
 
-    if (TEST_MODE == NO_TEST) {
+    if (TEST_MODE == OPERATIVE) {
         for (int i = 0; i < NUM_TASKS; i++)      tasks[i].run(now);
     } else {
         for (int i = 0; i < NUM_TEST_TASKS; i++) testTasks[i].run(now);
