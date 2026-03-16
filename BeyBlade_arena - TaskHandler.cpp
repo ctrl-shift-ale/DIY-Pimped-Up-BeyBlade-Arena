@@ -49,6 +49,18 @@ int TEST_MODE = OPERATIVE;
 int LED_STATE = LED_IDLE;
 
 // ============================================================================
+// LASERS STATE
+// ============================================================================
+#define LASERS_OFF              0
+#define LASERS_ALL_ON           1
+#define LASERS_FLASHING_ALL     2
+#define LASERS_FLASHING_RANDOM  3 // placeholder
+#define LASERS_FLASHING_SWIRL   4 // placeholder
+
+int LASERS_STATE = LASERS_ALL_ON;
+int LASERS_STATE_HIS = LASERS_STATE;
+
+// ============================================================================
 // LED CLASH RESPONSIVE ANIMATION TYPES
 // ============================================================================
 #define VMETER        0
@@ -88,6 +100,7 @@ int SOUND_STATE = NO_SOUND;
 #define RATE_INTENSITY                 500   // how often we update calculation of intensity
 #define LED_FLASH_RELEASE_TIME         500   // led flash release duration
 #define LED_VMETER_CELL_RELEASE_TIME    50   // led Vmeter single-cell fade release duration
+#define RATE_HALFDECAY_INTENSITY      3000  // the amount of time intensity takes to halve
 
 // ============================================================================
 // SCALING
@@ -113,6 +126,10 @@ float loudnessExtraPeak = 0.0f;
 // INTENSITY
 // ============================================================================
 float intensity = 0.0f;
+float targetIntensity = 0.0f;
+int intensityTurnsForDecay = RATE_HALFDECAY_INTENSITY /  RATE_INTENSITY; 
+float intensityReductionPerTurn = 0.0
+bool intensityRefreshed = false;
 
 // ============================================================================
 // TASK SCHEDULER
@@ -224,6 +241,10 @@ void setLaser(int idx, int state) {
 
 void allLasersOff() {
     for (int i = 0; i < NUM_LASERS; i++) setLaser(i, LOW);
+}
+
+void allLasersOn() {
+    for (int i = 0; i < NUM_LASERS; i++) setLaser(i, HIGH);
 }
 
 // ============================================================================
@@ -457,11 +478,42 @@ void taskAudio() {
     }
 }
 
-// --- INTENSITY TASK ---
-// Accum loudness input, decreases with time if loudness doesn't accum. Controls laser animations
-void taskIntensity() {
-    intensity = // FINO A QUI
+void refreshIntensity(float val) {
+    intensity += val;
+    if (intensity > 5.0) {
+        intensity = 5.0f;
+    }
+    targetIntensity = intensity / 2.0 ;
+    intensityReductionPerTurn = targetIntensity / (float)(intensityTurnsForDecay);
+    intensityRefreshed = true;
+}
 
+// --- INTENSITY TASK ---
+// Intensity naturally decreases with time. Controls laser animations
+void taskIntensity() {
+    static int counter = 1;
+    if (intensity < targetIntensity) {
+        intensity = targetIntensity; // intensity should never be below target Intensity
+    }
+    if (intensityRefreshed) {
+        counter = 1; // reset counter
+    }
+    if (counter == intensityTurnsForDecay) { // if no intensity refresh for the duration of the half decay, proceed to calculate next half decay
+        intensity = targetIntensity;
+        targetIntensity /= 2.0;
+        counter = 1;
+    } else if (intensity > targetIntensity) { 
+        intensity -= intensityReductionPerTurn;
+        if (intensity < 0.1) {
+            intensity = 0.0;
+        }
+    }
+
+    if (intensity < 0.5) {
+        LASERS_STATE = LASERS_ALL_ON;
+    } else {
+        LASERS_STATE = LASERS_FLASHING_ALL;
+    }
 }
 // --- LED TASK ---
 // Drives whichever LED animation is selected, based on the current STATE.
@@ -523,23 +575,30 @@ void taskLED() {
 // --- LASER TASK ---
 // Drives the laser animations.
 void taskLaser() {
-    // The swirl rate and number of lasers on can be modulated by loudness.
-    // Right now: idle = slow 1-laser sweep; on clash = fast multi-laser burst.
-
+    
     static unsigned long lastChange = 0;
     static int laserIdx = 0;
     static int countDown = 0;
+    static bool allOn = false;
 
     float rate;
-    int   nOn;
 
-    if (SOUND_STATE == NO_SOUND) {
-        rate = 1.0f;  // 1 sweep per second while quiet
-        nOn  = 1;
-    } else {
-        // Map loudness → rate (1–20 Hz) and number of lasers on (1–NUM_LASERS)
-        rate = expScale(loudness, 0.0f, 1.0f, 1.0f, 20.0f, 0.5f);
-        nOn  = 1 + (int)(loudness * (NUM_LASERS - 1));
+    // ALL LASERS ON
+    if ( (LASERS_STATE = LASERS_ALL_ON) && (LASERS_STATE != LASERS_STATE_HIS) ) {
+        allLasersOn();
+        allOn = true;
+    }
+
+    // ALL LASERS OFF
+    if ( (LASERS_STATE = LASERS_ALL_OFF) && (LASERS_STATE != LASERS_STATE_HIS) ) {
+        allLasersOff();
+        allOn = false;
+    }
+
+    // ALL LASERS FLASHING - RATE DETERMINED BY INTENSITY
+    if (LASERS_STATE == LASERS_FLASHING_ALL) {
+        // Map intensity → rate (1–20 Hz) and number of lasers on (1–NUM_LASERS)
+        rate = expScale(constrain(intensity,0.0f,3.0f), 0.0f,1.0f, 1.0f, 20.0f, 0.5f);
     }
 
     int period = (int)(1000.0f / rate); // ms per step
@@ -547,14 +606,16 @@ void taskLaser() {
     lastChange = now;
 
     if (countDown <= 0) {
-        countDown = period;
-        allLasersOff();
-        // Turn on nOn consecutive lasers starting at laserIdx
-        for (int i = 0; i < nOn; i++) {
-            setLaser(wrap(laserIdx + i, 0, NUM_LASERS - 1), HIGH);
+        countDown = period; //reset
+        if (allOn) {
+            allLasersOff();
+        } else {
+            allLasersOn();
         }
-        laserIdx = wrap(laserIdx + 1, 0, NUM_LASERS - 1);
+        allOn = (!allOn);
     }
+
+    LASERS_STATE = LASERS_STATE_HIS;
 }
 
 // ============================================================================
@@ -612,7 +673,6 @@ void setup() {
 
     for (int i = 0; i < NUM_LASERS; i++) {
         pinMode(lasers[i], OUTPUT);
-        setLaser(i, LOW);
     }
 
     analogReference(DEFAULT);
